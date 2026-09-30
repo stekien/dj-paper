@@ -17,6 +17,7 @@ _environment
 /.pytest_cache/
 __pycache__/
 *.py[cod]
+.venv/
 
 # Quarto tmp files
 /.quarto/
@@ -44,6 +45,7 @@ logo_notext_white.png
 # Various system files
 DS_Store
 /.luarc.json
+self_contained_modules/
 
 
 **/*.quarto_ipynb
