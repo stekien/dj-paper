@@ -57,6 +57,24 @@ class positive(ParameterConstraint):
     def jacobian(self, x):
         return x
 
+class box(ParameterConstraint):
+    def __init__(self, lower=-jnp.inf, upper=jnp.inf, **kwargs):
+        self.lower = lower
+        self.upper = upper
+        super().__init__(**kwargs)
+
+    def __call__(self, x):
+        return self.lower + (self.upper - self.lower) * jax.nn.sigmoid(x)
+
+    def inverse(self, y):
+        return jnp.log((y - self.lower)) - jnp.log((self.upper - y))
+
+    def jacobian(self, x):
+        return jnp.sum(
+            jnp.log(self.upper - self.lower)
+            - jax.nn.softplus(x)
+            - jax.nn.softplus(-x)
+        )
 
 # note: shape will need some care for something like a simplex,
 # which should also include axis=... in its definition. The shape
