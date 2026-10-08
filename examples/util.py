@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax.flatten_util import ravel_pytree
 from typing import Mapping, Protocol
 
 
@@ -12,7 +13,7 @@ def ravelize_function(f, pytree):
     # know all the dtypes are the same. See
     # https://jax.readthedocs.io/en/latest/_autosummary/jax.flatten_util.ravel_pytree.html
     # This is usually true in stats models
-    _, unravel = jax.flatten_util.ravel_pytree(pytree)
+    _, unravel = ravel_pytree(pytree)
     return lambda x: f(unravel(x))
 
 
@@ -55,8 +56,10 @@ class positive(ParameterConstraint):
         return jnp.log(y)
 
     def jacobian(self, x):
-        return x
+        return jnp.sum(x)
 
+
+# basic example of a box constraint
 class box(ParameterConstraint):
     def __init__(self, lower=-jnp.inf, upper=jnp.inf, **kwargs):
         self.lower = lower
@@ -70,11 +73,32 @@ class box(ParameterConstraint):
         return jnp.log((y - self.lower)) - jnp.log((self.upper - y))
 
     def jacobian(self, x):
-        return jnp.sum(
-            jnp.log(self.upper - self.lower)
-            - jax.nn.softplus(x)
-            - jax.nn.softplus(-x)
-        )
+        return jnp.sum(jnp.log(self.upper - self.lower)
+                - jax.nn.softplus(x)
+                - jax.nn.softplus(-x)
+               )
+
+
+class bind(ParameterConstraint):
+    """Wraps constraint class `cls`; callable kwargs are resolved from earlier parameters."""
+    def __init__(self, parents, cls, **kwargs):
+        shape = kwargs.pop("shape", ())
+        super().__init__(shape=shape)
+        self.parents = (parents,) if isinstance(parents, str) else tuple(parents)
+        self.cls, self.kwargs, self.shape_kw = cls, kwargs, shape
+        self.depends_on = frozenset(self.parents)       # the Jacobian indication
+
+    def _inner(self, theta):
+        args = [theta[p] for p in self.parents]
+        kw = {k: (v(*args) if callable(v) else v) for k, v in self.kwargs.items()}
+        return self.cls(shape=self.shape_kw, **kw)
+
+    def __call__(self, x, theta):   
+        return self._inner(theta)(x)
+    def inverse(self, y, theta):    
+        return self._inner(theta).inverse(y)
+    def jacobian(self, x, theta):   
+        return self._inner(theta).jacobian(x)
 
 # note: shape will need some care for something like a simplex,
 # which should also include axis=... in its definition. The shape
@@ -114,15 +138,23 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
     """
     Constrain parameters according to the provided spec and compute the log jacobian.
     Anything missing from the spec is assumed to have no constraints.
+    Bound constraints are applied last, since they need their parents'
+    constrained values (so a bind cannot depend on another bind).
     """
     jacobian = 0.0
     parameters = {}
+    bound = [p for p in kwargs if isinstance(parameter_spec.get(p), bind)]
     for param in kwargs:
+        if param in bound:
+            continue
         if param in parameter_spec:
             parameters[param] = parameter_spec[param](kwargs[param])
             jacobian += parameter_spec[param].jacobian(kwargs[param])
         else:
             parameters[param] = kwargs[param]
+    for param in bound:
+        parameters[param] = parameter_spec[param](kwargs[param], parameters)
+        jacobian += parameter_spec[param].jacobian(kwargs[param], parameters)
     return parameters, jacobian
 
 
@@ -133,7 +165,10 @@ def unconstrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
     """
     parameters = {}
     for param in kwargs:
-        if param in parameter_spec:
+        if isinstance(parameter_spec.get(param), bind):
+            # parents are read from the (already constrained) inputs
+            parameters[param] = parameter_spec[param].inverse(kwargs[param], kwargs)
+        elif param in parameter_spec:
             parameters[param] = parameter_spec[param].inverse(kwargs[param])
         else:
             parameters[param] = kwargs[param]
