@@ -138,8 +138,9 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
     """
     Constrain parameters according to the provided spec and compute the log jacobian.
     Anything missing from the spec is assumed to have no constraints.
-    Bound constraints are applied last, since they need their parents'
-    constrained values (so a bind cannot depend on another bind).
+    Bound constraints are applied last, in dependency order, since they need
+    their parents' constrained values (a bind may depend on another bind, as
+    long as there are no cycles).
     """
     jacobian = 0.0
     parameters = {}
@@ -152,9 +153,17 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
             jacobian += parameter_spec[param].jacobian(kwargs[param])
         else:
             parameters[param] = kwargs[param]
-    for param in bound:
-        parameters[param] = parameter_spec[param](kwargs[param], parameters)
-        jacobian += parameter_spec[param].jacobian(kwargs[param], parameters)
+    # resolve binds whose parents are all available; this loop only runs
+    # at trace time under jit, so it adds no cost to the compiled function
+    pending = bound
+    while pending:
+        ready = [p for p in pending if all(q in parameters for q in parameter_spec[p].parents)]
+        if not ready:
+            raise ValueError(f"cyclic or missing bind parents: {pending}")
+        for param in ready:
+            parameters[param] = parameter_spec[param](kwargs[param], parameters)
+            jacobian += parameter_spec[param].jacobian(kwargs[param], parameters)
+        pending = [p for p in pending if p not in ready]
     return parameters, jacobian
 
 
