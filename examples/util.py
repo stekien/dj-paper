@@ -139,7 +139,8 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
     Anything missing from the spec is unconstrained. Binds resolve their
     parents first (at trace time, so no cost under jit).
     """
-    parameters, jacobian = {}, 0.0
+    parameters = {}
+    jacobian = 0.0
 
     def get(name):
         nonlocal jacobian
@@ -150,7 +151,10 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
             parameters[name] = c(kwargs[name])
             jacobian += c.jacobian(kwargs[name])
         return parameters[name]
-
+    
+    # get() constrains a bind's parents first (recursively), and skips
+    # anything already done, so each parameter and its Jacobian term is
+    # computed exactly once, whatever the order of kwargs.
     for name in kwargs:
         get(name)
     return parameters, jacobian
