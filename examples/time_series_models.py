@@ -46,7 +46,7 @@ returns, true_s2 = simulate(data_key, **true, T=T)
 parameter_spec = {
     "alpha_0": positive(),
     "alpha_1": box(lower=0.0, upper=1.0),
-    "beta_1": bind("alpha_1", box, lower=0.0, upper=lambda a: (1 - a)),
+    "beta_1": bind("alpha_1", lambda a: box(lower=0.0, upper=1 - a)),
 }
 
 

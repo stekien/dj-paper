@@ -40,6 +40,17 @@ class ParameterConstraint:
         return 0.0
 
 
+class bind:
+    """Constraint built from earlier parameters: bind("a", "b", lambda a, b: box(...))."""
+    def __init__(self, *args):
+        *parents, self.f = args
+        self.parents = tuple(parents)
+        self.depends_on = frozenset(self.parents)
+
+    def make(self, theta):
+        return self.f(*(theta[p] for p in self.parents))
+
+
 # simple alias: base class does transforms
 real = ParameterConstraint
 
@@ -79,27 +90,6 @@ class box(ParameterConstraint):
                )
 
 
-class bind(ParameterConstraint):
-    """Wraps constraint class `cls`; callable kwargs are resolved from earlier parameters."""
-    def __init__(self, parents, cls, **kwargs):
-        shape = kwargs.pop("shape", ())
-        super().__init__(shape=shape)
-        self.parents = (parents,) if isinstance(parents, str) else tuple(parents)
-        self.cls, self.kwargs, self.shape_kw = cls, kwargs, shape
-        self.depends_on = frozenset(self.parents)       # the Jacobian indication
-
-    def _inner(self, theta):
-        args = [theta[p] for p in self.parents]
-        kw = {k: (v(*args) if callable(v) else v) for k, v in self.kwargs.items()}
-        return self.cls(shape=self.shape_kw, **kw)
-
-    def __call__(self, x, theta):   
-        return self._inner(theta)(x)
-    def inverse(self, y, theta):    
-        return self._inner(theta).inverse(y)
-    def jacobian(self, x, theta):   
-        return self._inner(theta).jacobian(x)
-
 # note: shape will need some care for something like a simplex,
 # which should also include axis=... in its definition. The shape
 # should be that of the unconstrained parameter.
@@ -122,65 +112,58 @@ class simplex(ParameterConstraint):
 
 
 def spec_to_pytree(
-    parameter_spec: Mapping[str, Shaped],
+    parameter_spec: Mapping[str, Shaped | bind],
 ) -> dict[str, jnp.ndarray]:
     """
     Turns a dictionary from parameter names to shapes/dtypes
     into a pytree of zeros with those shapes/dtypes.
 
-    Note that the Shaped protocol is satisfied by ParameterConstraint
-    objects, but also by something like a jax.numpy array.
+    Entries can be anything satisfying the Shaped protocol (ParameterConstraint
+    objects, jax.numpy arrays) or a bind, whose shape comes from the
+    constraint it builds.
     """
-    return {k: jnp.zeros(v.shape, dtype=v.dtype) for k, v in parameter_spec.items()}
+    out = {}
+    def get(name):
+        if name not in out:
+            v = parameter_spec[name]
+            if isinstance(v, bind):
+                v = v.make({p: get(p) for p in v.parents})
+            out[name] = jnp.zeros(v.shape, dtype=v.dtype)
+        return out[name]
+    return {k: get(k) for k in parameter_spec}
 
 
 def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
     """
-    Constrain parameters according to the provided spec and compute the log jacobian.
-    Anything missing from the spec is assumed to have no constraints.
-    Bound constraints are applied last, in dependency order, since they need
-    their parents' constrained values (a bind may depend on another bind, as
-    long as there are no cycles).
+    Constrain parameters per the spec and compute the log Jacobian.
+    Anything missing from the spec is unconstrained. Binds resolve their
+    parents first (at trace time, so no cost under jit).
     """
-    jacobian = 0.0
-    parameters = {}
-    bound = [p for p in kwargs if isinstance(parameter_spec.get(p), bind)]
-    for param in kwargs:
-        if param in bound:
-            continue
-        if param in parameter_spec:
-            parameters[param] = parameter_spec[param](kwargs[param])
-            jacobian += parameter_spec[param].jacobian(kwargs[param])
-        else:
-            parameters[param] = kwargs[param]
-    # resolve binds whose parents are all available; this loop only runs
-    # at trace time under jit, so it adds no cost to the compiled function
-    pending = bound
-    while pending:
-        ready = [p for p in pending if all(q in parameters for q in parameter_spec[p].parents)]
-        if not ready:
-            raise ValueError(f"cyclic or missing bind parents: {pending}")
-        for param in ready:
-            parameters[param] = parameter_spec[param](kwargs[param], parameters)
-            jacobian += parameter_spec[param].jacobian(kwargs[param], parameters)
-        pending = [p for p in pending if p not in ready]
+    parameters, jacobian = {}, 0.0
+
+    def get(name):
+        nonlocal jacobian
+        if name not in parameters:
+            c = parameter_spec.get(name, real())
+            if isinstance(c, bind):
+                c = c.make({p: get(p) for p in c.parents})
+            parameters[name] = c(kwargs[name])
+            jacobian += c.jacobian(kwargs[name])
+        return parameters[name]
+
+    for name in kwargs:
+        get(name)
     return parameters, jacobian
 
 
 def unconstrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
-    """
-    Inverse of constrain: given constrained parameters, return unconstrained versions.
-    Anything missing from the spec is assumed to have no constraints.
-    """
+    """Inverse of constrain. Anything missing from the spec is unconstrained."""
     parameters = {}
-    for param in kwargs:
-        if isinstance(parameter_spec.get(param), bind):
-            # parents are read from the (already constrained) inputs
-            parameters[param] = parameter_spec[param].inverse(kwargs[param], kwargs)
-        elif param in parameter_spec:
-            parameters[param] = parameter_spec[param].inverse(kwargs[param])
-        else:
-            parameters[param] = kwargs[param]
+    for name, y in kwargs.items():
+        c = parameter_spec.get(name, real())
+        if isinstance(c, bind):
+            c = c.make(kwargs)  # parents are already constrained here
+        parameters[name] = c.inverse(y)
     return parameters
 
 
