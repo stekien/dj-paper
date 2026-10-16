@@ -152,9 +152,10 @@ def constrain(parameter_spec: Mapping[str, ParameterConstraint], **kwargs):
             jacobian += c.jacobian(kwargs[name])
         return parameters[name]
     
-    # get() constrains a bind's parents first (recursively), and skips
-    # anything already done, so each parameter and its Jacobian term is
-    # computed exactly once, whatever the order of kwargs.
+    # Depth-first traversal of the bind dependency graph: get() constrains
+    # a bind's parents before the bind itself and skips anything already
+    # done, so each parameter and its Jacobian term is computed exactly
+    # once, whatever the order of kwargs.
     for name in kwargs:
         get(name)
     return parameters, jacobian
