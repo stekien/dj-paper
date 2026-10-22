@@ -16,6 +16,9 @@ from time_series_models import (
     log_density as log_density_garch,
     generated_quantities as generated_quantities_garch,
     parameter_spec as parameter_spec_garch,
+    log_density_simplex as log_density_garch_simplex,
+    generated_quantities_simplex as generated_quantities_garch_simplex,
+    parameter_spec_simplex as parameter_spec_garch_simplex,
     log_density_vec as log_density_vec_garch,
     generated_quantities_vec as generated_quantities_vec_garch,
 )
@@ -97,3 +100,12 @@ if __name__ == "__main__":
     # note: because generated_quantities returns a pytree, we're no longer
     # in the flattened realm
     print("garch (1,1): ", jax.tree.map(functools.partial(jnp.mean, axis=0), draws_vec_garch))
+
+    # ------------- simplex version (alpha_1, beta_1, slack) -------------
+
+    init_draw_simplex = init_random(parameter_spec_garch_simplex, init_key)
+    states_simplex = stan_sample(log_density_garch_simplex, init_draw_simplex, N, sample_key)
+    draws_simplex = jax.vmap(generated_quantities_garch_simplex, (0, None))(
+        rngs, r_new, **states_simplex.position
+    )
+    print("garch (1,1) simplex: ", jax.tree.map(functools.partial(jnp.mean, axis=0), draws_simplex))
