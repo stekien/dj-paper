@@ -90,9 +90,62 @@ class box(ParameterConstraint):
                )
 
 
+# basic example of a sum-to-zero constraint along one or more axes 
+# (Householder map, as in PyMC)
+class zero_sum(ParameterConstraint):
+    def __init__(self, shape, axes=-1, **kwargs):
+        shape = (shape,) if isinstance(shape, int) else tuple(shape)
+        axes = (axes,) if isinstance(axes, int) else axes
+        self.axes = tuple(sorted({range(len(shape))[a] for a in axes}))  # normalize, dedupe
+        self.constrained_shape = shape
+        free = tuple(d - (i in self.axes) for i, d in enumerate(shape))
+        super().__init__(shape=free, **kwargs)
+
+    def __call__(self, x):
+        for a in self.axes:
+            r = (x.shape[a] + 1) ** 0.5
+            s = x.sum(a, keepdims=True)
+            x = jnp.concatenate([x - s / (r * (r + 1)), -s / r], a)
+        return x
+
+    def inverse(self, y):
+        for a in self.axes:
+            r = y.shape[a] ** 0.5
+            s = y.sum(a, keepdims=True)
+            head, last = jnp.split(y, [y.shape[a] - 1], a)
+            y = head - (last + s / r) / (r + 1)
+        return y
+
+    def jacobian(self, x):
+        return 0.0  # isometry onto the zero-sum subspace
+
+
+# basic example of a simplex constraint along one axis 
+# (softmax of zero-sum logits)
+class simplex(zero_sum):
+    def __init__(self, shape, axis=-1, **kwargs):
+        super().__init__(shape, axes=axis, **kwargs)
+        if len(self.axes) != 1:
+            raise ValueError("simplex requires exactly one axis.")
+        self.axis = self.axes[0]
+
+    def __call__(self, x):
+        return jax.nn.softmax(super().__call__(x), axis=self.axis)
+
+    def inverse(self, p):
+        return super().inverse(jnp.log(p))
+
+    def jacobian(self, x):
+        logp = jax.nn.log_softmax(super().__call__(x), axis=self.axis)
+        k = logp.shape[self.axis]
+        n_simplexes = logp.size // k
+        return logp.sum() + 0.5 * n_simplexes * jnp.log(k)
+
+    
 # note: shape will need some care for something like a simplex,
 # which should also include axis=... in its definition. The shape
 # should be that of the unconstrained parameter.
+"""
 class simplex(ParameterConstraint):
     def __init__(self, shape, axes=..., **kwargs):
         self.axes = axes
@@ -109,7 +162,7 @@ class simplex(ParameterConstraint):
 
     def jacobian(self, x):
         raise NotImplementedError("Simplex constraint not yet implemented")
-
+"""
 
 def spec_to_pytree(
     parameter_spec: Mapping[str, Shaped | bind],
