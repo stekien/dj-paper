@@ -141,28 +141,6 @@ class simplex(zero_sum):
         n_simplexes = logp.size // k
         return logp.sum() + 0.5 * n_simplexes * jnp.log(k)
 
-    
-# note: shape will need some care for something like a simplex,
-# which should also include axis=... in its definition. The shape
-# should be that of the unconstrained parameter.
-"""
-class simplex(ParameterConstraint):
-    def __init__(self, shape, axes=..., **kwargs):
-        self.axes = axes
-        shape_n = jnp.array(shape, dtype=int)
-        shape_n = shape_n.at[axes,].set(shape_n[axes,] - 1)
-
-        super().__init__(shape=tuple(shape_n), **kwargs)
-
-    def __call__(self, x):
-        raise NotImplementedError("Simplex constraint not yet implemented")
-
-    def inverse(self, y):
-        raise NotImplementedError("Simplex constraint not yet implemented")
-
-    def jacobian(self, x):
-        raise NotImplementedError("Simplex constraint not yet implemented")
-"""
 
 def spec_to_pytree(
     parameter_spec: Mapping[str, Shaped | bind],
