@@ -49,3 +49,5 @@ self_contained_modules/
 
 
 **/*.quarto_ipynb
+env/
+.vscode/
