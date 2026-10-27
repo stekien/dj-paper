@@ -7,6 +7,8 @@ from util import box, positive, simplex, zero_sum
 
 POSITIVE = positive(shape=(3,))
 BOX = box(lower=-1.0, upper=3.0, shape=(3,))
+BOX_INF = box(lower=jnp.array([-1.0, 2.0, -jnp.inf, -jnp.inf]),
+              upper=jnp.array([3.0, jnp.inf, 1.0, jnp.inf]), shape=(4,))
 ZERO_SUM = zero_sum(4)
 SIMPLEX = simplex(4)
 L2, L3 = np.log(2.0), np.log(3.0)
@@ -20,6 +22,10 @@ KNOWN = [  #       c          x                     y                       log-
                  id="box:x=(0,0,0)->y=(1,1,1)"),
     pytest.param(BOX,      [-L3, 0.0, L3],        [0.0, 1.0, 2.0],         np.log(9/16),
                  id="box:x=(-log3,0,log3)->y=(0,1,2)"),
+    pytest.param(BOX_INF,  [0.0, 0.0, 0.0, 0.0],  [1.0, 3.0, 0.0, 0.0],    0.0,
+                 id="box_inf:x=(0,0,0,0)->y=(1,3,0,0)"),
+    pytest.param(BOX_INF,  [L3, L2, -L2, 5.0],    [2.0, 4.0, -1.0, 5.0],   L3,
+                 id="box_inf:x=(log3,log2,-log2,5)->y=(2,4,-1,5)"),
     pytest.param(ZERO_SUM, [1.0, 1.0, 1.0],       [1/2, 1/2, 1/2, -3/2],   0.0,
                  id="zero_sum:x=(1,1,1)->y=(1,1,1,-3)/2"),
     pytest.param(ZERO_SUM, [1.0, 0.0, 0.0],       [5/6, -1/6, -1/6, -1/2], 0.0,

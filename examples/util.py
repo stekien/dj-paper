@@ -70,24 +70,40 @@ class positive(ParameterConstraint):
         return jnp.sum(x)
 
 
-# basic example of a box constraint
+# basic example of a box constraint; either bound may be infinite, per element
+# (logistic if both are finite, exp if one is, identity if neither, as in Stan)
 class box(ParameterConstraint):
     def __init__(self, lower=-jnp.inf, upper=jnp.inf, **kwargs):
         self.lower = lower
         self.upper = upper
         super().__init__(**kwargs)
 
+    def _finite_bounds(self):
+        # jnp.where differentiates every branch, so the unused ones must stay finite:
+        # l < u are the bounds where finite and stand-ins otherwise
+        has_l, has_u = jnp.isfinite(self.lower), jnp.isfinite(self.upper)
+        l = jnp.where(has_l, self.lower, jnp.where(has_u, self.upper - 1.0, 0.0))
+        u = jnp.where(has_u, self.upper, l + 1.0)
+        return has_l & has_u, has_l & ~has_u, ~has_l & has_u, l, u
+
     def __call__(self, x):
-        return self.lower + (self.upper - self.lower) * jax.nn.sigmoid(x)
+        both, lower_only, upper_only, l, u = self._finite_bounds()
+        return jnp.where(both, l + (u - l) * jax.nn.sigmoid(x),
+               jnp.where(lower_only, l + jnp.exp(jnp.where(lower_only, x, 0.0)),
+               jnp.where(upper_only, u - jnp.exp(-jnp.where(upper_only, x, 0.0)), x)))
 
     def inverse(self, y):
-        return jnp.log((y - self.lower)) - jnp.log((self.upper - y))
+        both, lower_only, upper_only, l, u = self._finite_bounds()
+        inside = lambda mask: jnp.where(mask, y, (l + u) / 2)  # keeps log arguments positive
+        return jnp.where(both, jnp.log(inside(both) - l) - jnp.log(u - inside(both)),
+               jnp.where(lower_only, jnp.log(inside(lower_only) - l),
+               jnp.where(upper_only, -jnp.log(u - inside(upper_only)), y)))
 
     def jacobian(self, x):
-        return jnp.sum(jnp.log(self.upper - self.lower)
-                - jax.nn.softplus(x)
-                - jax.nn.softplus(-x)
-               )
+        both, lower_only, upper_only, l, u = self._finite_bounds()
+        return jnp.sum(jnp.where(both, jnp.log(u - l) - jax.nn.softplus(x) - jax.nn.softplus(-x),
+                       jnp.where(lower_only, x,
+                       jnp.where(upper_only, -x, 0.0))))
 
 
 # basic example of a sum-to-zero constraint along one or more axes 
