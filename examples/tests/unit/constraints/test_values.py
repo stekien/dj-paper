@@ -3,21 +3,31 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from util import positive, zero_sum
+from util import box, positive, simplex, zero_sum
 
 POSITIVE = positive(shape=(3,))
+BOX = box(lower=-1.0, upper=3.0, shape=(3,))
 ZERO_SUM = zero_sum(4)
+SIMPLEX = simplex(4)
 L2, L3 = np.log(2.0), np.log(3.0)
 
-KNOWN = [  #       c          x                y                       log-det
-    pytest.param(POSITIVE, [0.0, L2, L3],    [1.0, 2.0, 3.0],         np.log(6.0),
+KNOWN = [  #       c          x                     y                       log-det
+    pytest.param(POSITIVE, [0.0, L2, L3],         [1.0, 2.0, 3.0],         np.log(6.0),
                  id="positive:x=log(1,2,3)->y=(1,2,3)"),
-    pytest.param(POSITIVE, [L2, L2, L2],     [2.0, 2.0, 2.0],         np.log(8.0),
+    pytest.param(POSITIVE, [L2, L2, L2],          [2.0, 2.0, 2.0],         np.log(8.0),
                  id="positive:x=log(2,2,2)->y=(2,2,2)"),
-    pytest.param(ZERO_SUM, [1.0, 1.0, 1.0],  [1/2, 1/2, 1/2, -3/2],   0.0,
+    pytest.param(BOX,      [0.0, 0.0, 0.0],       [1.0, 1.0, 1.0],         0.0,
+                 id="box:x=(0,0,0)->y=(1,1,1)"),
+    pytest.param(BOX,      [-L3, 0.0, L3],        [0.0, 1.0, 2.0],         np.log(9/16),
+                 id="box:x=(-log3,0,log3)->y=(0,1,2)"),
+    pytest.param(ZERO_SUM, [1.0, 1.0, 1.0],       [1/2, 1/2, 1/2, -3/2],   0.0,
                  id="zero_sum:x=(1,1,1)->y=(1,1,1,-3)/2"),
-    pytest.param(ZERO_SUM, [1.0, 0.0, 0.0],  [5/6, -1/6, -1/6, -1/2], 0.0,
+    pytest.param(ZERO_SUM, [1.0, 0.0, 0.0],       [5/6, -1/6, -1/6, -1/2], 0.0,
                  id="zero_sum:x=(1,0,0)->y=(5,-1,-1,-3)/6"),
+    pytest.param(SIMPLEX,  [0.0, 0.0, 0.0],       [1/4, 1/4, 1/4, 1/4],    np.log(1/128),
+                 id="simplex:x=(0,0,0)->y=(1,1,1,1)/4"),
+    pytest.param(SIMPLEX,  [3*L2/2, L2/2, -L2/2], [1/2, 1/4, 1/8, 1/8],    np.log(1/256),
+                 id="simplex:x=log(2)(3,1,-1)/2->y=(4,2,1,1)/8"),
 ]
 
 

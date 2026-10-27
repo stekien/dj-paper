@@ -45,7 +45,6 @@ logo_notext_white.png
 # Various system files
 DS_Store
 /.luarc.json
-self_contained_modules/
 
 
 **/*.quarto_ipynb

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from util import positive, zero_sum
+from util import box, positive, simplex, zero_sum
 
 class Case(NamedTuple):
     make: Callable                   # () -> constraint, 3 to 5 elements per axis
@@ -38,17 +38,38 @@ def is_positive(c, y):
     return np.isfinite(y).all() and (y > 0).all()
 
 
+def is_box(c, y):
+    return np.isfinite(y).all() and (y > c.lower).all() and (y < c.upper).all()
+
+
 def is_zero_sum(c, y):
     sums = [y.sum(axis=a) for a in c.axes]
     return np.isfinite(y).all() and all(np.allclose(s, 0.0, atol=1e-10) for s in sums)
 
 
+def is_simplex(c, y):
+    sums = y.sum(axis=c.axis)
+    return np.isfinite(y).all() and (y > 0).all() and np.allclose(sums, 1.0, atol=1e-10)
+
+
+def drop_last(c, y):
+    """y without its last entry along c.axis, which is 1 minus the sum of the others."""
+    return np.delete(y, -1, axis=c.axis)
+
+
 CASES = {
-    "positive":    Case(make=lambda: positive(shape=(3,)), in_support=is_positive),
-    "zero_sum_1d": Case(make=lambda: zero_sum(5), in_support=is_zero_sum),
-    "zero_sum_2d": Case(make=lambda: zero_sum((3, 4), axes=(0, 1)), in_support=is_zero_sum),
-    "zero_sum_3d": Case(make=lambda: zero_sum((3, 4, 5), axes=(0, 1, 2)), in_support=is_zero_sum),
-    "zero_sum_4d": Case(make=lambda: zero_sum((3, 4, 3, 3), axes=(0, 1, 2, 3)), in_support=is_zero_sum),
+    "positive":         Case(make=lambda: positive(shape=(3,)), in_support=is_positive),
+    "box":              Case(make=lambda: box(lower=-1.0, upper=3.0, shape=(3,)), in_support=is_box),
+    "box_array_bounds": Case(make=lambda: box(lower=jnp.array([-1.0, 0.0, 2.0]),
+                                              upper=jnp.array([1.0, 4.0, 3.0]), shape=(3,)),
+                             in_support=is_box),
+    "zero_sum_1d":      Case(make=lambda: zero_sum(5), in_support=is_zero_sum),
+    "zero_sum_2d":      Case(make=lambda: zero_sum((3, 4), axes=(0, 1)), in_support=is_zero_sum),
+    "zero_sum_3d":      Case(make=lambda: zero_sum((3, 4, 5), axes=(0, 1, 2)), in_support=is_zero_sum),
+    "zero_sum_4d":      Case(make=lambda: zero_sum((3, 4, 3, 3), axes=(0, 1, 2, 3)), in_support=is_zero_sum),
+    "simplex_1d":       Case(make=lambda: simplex(4), in_support=is_simplex, free=drop_last),
+    "simplex_2d":       Case(make=lambda: simplex((3, 4)), in_support=is_simplex, free=drop_last),
+    "simplex_2d_axis0": Case(make=lambda: simplex((3, 4), axis=0), in_support=is_simplex, free=drop_last),
 }
 
 OUTPUTS = {"forward": lambda c, x: c(x), "log_det": lambda c, x: c.jacobian(x)}
