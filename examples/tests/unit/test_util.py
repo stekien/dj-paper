@@ -3,7 +3,7 @@
 SPEC: s is positive (3 entries), z is zero_sum(4); 'extra' is not in SPEC, so it is real.
 Hand values:
   s:     exp(log 2, log 3, log 1) = (2, 3, 1), log-det = log 2 + log 3 + 0 = log 6
-  z:     zero_sum(4)(1, 1, 1) = (1, 1, 1, -3)/2, log-det = 0  (unit/constraints/test_zero_sum.py)
+  z:     zero_sum(4)(1, 1, 1) = (1, 1, 1, -3)/2, log-det = 0  (unit/constraints/test_values.py)
   extra: unchanged, log-det = 0
   total log-det = log 6
 

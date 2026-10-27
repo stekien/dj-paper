@@ -6,13 +6,32 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from helpers import fd_log_volume
 from util import positive, zero_sum
 
 class Case(NamedTuple):
     make: Callable                   # () -> constraint, 3 to 5 elements per axis
     in_support: Callable             # (c, y) -> True iff y is finite and satisfies the constraint
     free: Callable = lambda c, y: y  # (c, y) -> y without outputs determined by the others
+
+# helpers
+def fd_jacobian(f, x, eps=1e-6):
+    """Central-difference Jacobian of f at x, shape (f(x).size, x.size)."""
+    x = np.asarray(x, dtype=np.float64)
+
+    def at(dx):
+        return np.asarray(f(jnp.asarray((x.ravel() + dx).reshape(x.shape)))).ravel()
+
+    return np.stack([(at(e) - at(-e)) / (2 * eps) for e in np.eye(x.size) * eps], axis=1)
+
+
+def fd_log_volume(f, x, eps=1e-6):
+    """log of the factor by which f scales volume at x: 0.5 * log det(J^T J).
+
+    Equals log|det J| for square J; for tall J it is the volume factor onto
+    the image subspace.
+    """
+    J = fd_jacobian(f, x, eps)
+    return 0.5 * np.linalg.slogdet(J.T @ J)[1]
 
 
 def is_positive(c, y):
@@ -79,3 +98,32 @@ def test_output_under_vmap__equals_output_per_item(case, output):
     xs = random_x(c, batch=(3,))
     per_item = np.stack([output(c, x) for x in xs])
     np.testing.assert_allclose(jax.vmap(lambda u: output(c, u))(xs), per_item, atol=1e-10)
+
+
+""" tests helpers for finite-difference checks (only for debugging)
+# R^3 -> R^4 with J = TALL everywhere; J^T J = I + 1 1^T has eigenvalues 4, 1, 1
+TALL = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]])
+
+
+def test_fd_jacobian_of_linear_map__is_its_matrix():
+    J = fd_jacobian(lambda x: jnp.asarray(TALL) @ x, jnp.ones(3))
+    np.testing.assert_allclose(J, TALL, atol=1e-6)
+
+
+def test_fd_jacobian_of_elementwise_exp__is_diagonal_of_exp_x():
+    # x = (0, log 2, log 3): d exp(x_i) / d x_j = exp(x_i) if i == j, else 0
+    x = jnp.log(jnp.array([1.0, 2.0, 3.0]))
+    np.testing.assert_allclose(fd_jacobian(jnp.exp, x), np.diag([1.0, 2.0, 3.0]), atol=1e-6)
+
+
+def test_fd_log_volume_of_square_map__is_log_abs_det():
+    # J = diag(-1, 2, 3): |det J| = 6; the negative entry checks the absolute value
+    D = jnp.diag(jnp.array([-1.0, 2.0, 3.0]))
+    np.testing.assert_allclose(fd_log_volume(lambda x: D @ x, jnp.ones(3)), np.log(6.0), atol=1e-6)
+
+
+def test_fd_log_volume_of_tall_map__is_half_log_det_of_gram():
+    # det(J^T J) = det(I + 1 1^T) = 4 * 1 * 1, so 0.5 * log 4 = log 2
+    f = lambda x: jnp.asarray(TALL) @ x
+    np.testing.assert_allclose(fd_log_volume(f, jnp.ones(3)), np.log(2.0), atol=1e-6)
+"""
